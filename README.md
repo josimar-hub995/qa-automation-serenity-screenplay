@@ -1,341 +1,806 @@
-# Automatización QA Senior Web y API
+# QA Automation - Serenity Screenplay
 
-Proyecto ejecutable para ocho casos activos y tres plantillas de error de headers, construido con Java 17, Maven, Serenity BDD, Screenplay, Screenplay REST y Cucumber.
+Framework de automatización orientado a **Quality Engineering** para validaciones **Frontend** y **Backend/API**, desarrollado con Java 17, Serenity BDD, Screenplay Pattern, Cucumber, Selenium WebDriver y Screenplay REST.
 
-## Escenarios automatizados
+---
 
-| TAP | TAG de ejecución | Escenario | Tipo |
-|---|---|---|---|
-| `TAP - 001` | `@TC_WEB_001` | Validar que la página de inicio de Selenium cargue correctamente y muestre el título esperado. | Web |
-| `TAP - 002` | `@TC_WEB_002` | Validar que la navegación al apartado Documentation funcione correctamente y cargue la página esperada. | Web |
-| `TAP - 003` | `@TC_WEB_003` | Validar el flujo de búsqueda de WebDriver y que los resultados correspondan a lo buscado. | Web |
-| `TAP - 004` | `@TC_WEB_004` | Validar el flujo de búsqueda de Selenium Grid y que los resultados correspondan a lo buscado. | Web |
-| `TAP - 005` | `@TC_WEB_005` | Validar el flujo de búsqueda de BiDi y que los resultados correspondan a lo buscado. | Web |
-| `TAP - 006` | `@TC_API_006` | Validar que la API de Reqres liste usuarios correctamente y muestre el contenido esperado. | API |
-| `TAP - 007` | `@TC_API_007` | Validar la creación de un nuevo usuario mediante la API de Reqres y el contenido de la respuesta. | API |
-| `TAP - 008` | `@TC_API_008` | Validar la actualización de datos de un usuario mediante la API de Reqres y el contenido de la respuesta. | API |
+# Ejecución rápida
 
-Los casos se adaptaron del documento `Prueba Técnica para QA (1).docx`. El TAP se almacena en Excel y el TAG de ejecución vive únicamente en el feature. Ambos son únicos y todos los escenarios comienzan con `Validar`.
+## Comando principal
 
-El feature API incluye además `TC_API_009`, `TC_API_010` y `TC_API_011` como plantillas desactivadas para probar headers con `OMIT`, `EMPTY` e `INCORRECT`. Se activan desde la columna `EJECUTAR` del Excel después de ajustar el status y response esperados al contrato del ambiente.
-
-## Requisitos
-
-- JDK 17.
-- Maven 3.9 o superior.
-- Google Chrome para los escenarios Web.
-- Acceso a Internet para Maven, WebDriver, Selenium.dev y Reqres.
-- API key de Reqres para los escenarios API.
-
-Reqres requiere actualmente el encabezado `x-api-key`. Genere una key desde su sitio y expóngala sin guardarla en el repositorio:
-
-Linux o macOS:
-
-```bash
-export REQRES_API_KEY="su_api_key"
-```
-
-Windows PowerShell:
+Para ejecutar la suite de regresión:
 
 ```powershell
-$env:REQRES_API_KEY="su_api_key"
+mvn -q clean verify "-Dcucumber.filter.tags=@regression"
 ```
 
-También se admite la propiedad de sistema `-Dreqres.api.key=su_api_key`.
+Este es el comando recomendado para realizar una validación rápida del proyecto.
 
-## Ejecución
+---
 
-### Bandera central de logs
+## Otras ejecuciones
 
-La bandera permanente se encuentra en el archivo raíz `serenity.properties`:
-
-```properties
-execution.logs=false
-```
-
-- `false`: muestra únicamente el progreso profesional, el resultado final y las URLs de reportes.
-- `true`: agrega detalle por caso, logs técnicos de Serenity/Logback y trazas completas de errores.
-
-La prioridad es: `-Dexecution.logs`, variable `EXECUTION_LOGS` y, finalmente, `serenity.properties`. Por ello puede cambiar el archivo una vez o sobrescribirlo temporalmente desde el comando.
-
-### Salida resumida con avance en vivo
-
-En Windows PowerShell, el script recomendado lee automáticamente la bandera central:
+### Frontend
 
 ```powershell
-.\run_tests.ps1 -Tags "@automation"
-```
-
-Con `execution.logs=false` se ocultan los logs técnicos y se conserva la información útil:
-
-```text
-================================================================================================================
-                                      QA AUTOMATION | EJECUCION DE PRUEBAS
-================================================================================================================
- Casos seleccionados : 8
- Modo de consola      : RESUMIDO
-----------------------------------------------------------------------------------------------------------------
- [PROGRESO] [###---------------------]  13% | Completados 1/8 | PASSED 1 | FAILED 0 | Pendientes 7
- ...
- [PROGRESO] [########################] 100% | Completados 8/8 | PASSED 8 | FAILED 0 | Pendientes 0
-----------------------------------------------------------------------------------------------------------------
- RESULTADO FINAL: PASSED | Ejecutados 8 | PASSED 8 | FAILED 0
-================================================================================================================
-
-================================================================================================================
-                                 QA AUTOMATION · REPORTE DE EJECUCION
-================================================================================================================
- ESCENARIOS:        8   |   PASSED: 8   |   FAILED: 0
-----------------------------------------------------------------------------------------------------------------
- DASHBOARD GENERAL
- Local:
-file:///C:/.../reports/REPORT_005_20260919_093241/resumen/dashboard.html
-================================================================================================================
-```
-
-La URL `file:///...` corresponde al dashboard HTML de la computadora que ejecutó las pruebas. En Jenkins se imprime adicionalmente una URL `http(s)://.../artifact/.../dashboard.html`, que sí se abre desde cualquier equipo con acceso al pipeline.
-
-Si PowerShell restringe la ejecución de scripts:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\run_tests.ps1 -Tags "@automation"
-```
-
-El comando Maven equivalente es:
-
-```powershell
-mvn -q clean verify "-Dcucumber.filter.tags=@automation"
-```
-
-`-q` silencia los mensajes propios de Maven. La bandera de `serenity.properties` controla los logs de las pruebas, pero Maven configura su propia consola antes de leer el proyecto.
-
-### Salida detallada
-
-Cambie `execution.logs=true` en `serenity.properties` y ejecute:
-
-```powershell
-.\run_tests.ps1 -Tags "@automation"
-```
-
-También puede activar el detalle solo para una ejecución, sin modificar el archivo:
-
-```powershell
-mvn clean verify "-Dcucumber.filter.tags=@automation" "-Dexecution.logs=true"
-```
-
-Quite `-q` cuando también quiera ver el ciclo de vida completo de Maven. El contador y las URLs del dashboard aparecen en ambos modos.
-
-### Filtros de ejecución
-
-Todos los casos Web y API:
-
-```bash
-mvn -q clean verify "-Dcucumber.filter.tags=@automation"
-```
-
-Por tipo:
-
-```bash
 mvn -q clean verify "-Dcucumber.filter.tags=@web"
+```
+
+### Backend
+
+```powershell
 mvn -q clean verify "-Dcucumber.filter.tags=@api"
 ```
 
-Por TAG de ejecución o módulo:
+### Tag específico
 
-```bash
+```powershell
 mvn -q clean verify "-Dcucumber.filter.tags=@TC_WEB_001"
-mvn -q clean verify "-Dcucumber.filter.tags=@TC_WEB_004"
-mvn -q clean verify "-Dcucumber.filter.tags=@search"
-mvn -q clean verify "-Dcucumber.filter.tags=@TC_API_007"
-mvn -q clean verify "-Dcucumber.filter.tags=@api_cases"
 ```
 
-Modo headless:
+Ejemplo Backend:
 
-```bash
-mvn -q clean verify "-Dcucumber.filter.tags=@automation" -Dheadless.mode=true
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@TC_API_006"
 ```
 
-También se incluyen `run_all.bat` y `run_all.sh`. Ambos verifican que Maven y `REQRES_API_KEY` estén disponibles y leen la bandera de `serenity.properties`. La variable `EXECUTION_LOGS=true|false` la sobrescribe temporalmente. El script PowerShell conserva además `-Logs true|false` como override opcional.
+### Chrome
 
-## Convención de Gherkin
-
-Las palabras reservadas se mantienen en inglés: `Feature`, `Background`, `Scenario Outline`, `Given`, `When`, `Then`, `And` y `Examples`. Los títulos y pasos funcionales están en español.
-
-Todo `Scenario` o `Scenario Outline` debe comenzar con la palabra `Validar` seguida del contexto que se comprobará:
-
-```gherkin
-Feature: Búsqueda de información en Selenium
-
-  @TC_WEB_003 @web @automation @regression @happyPath @xc-DataTest @search
-  Scenario Outline: Validar el flujo de búsqueda de WebDriver y los resultados correspondientes con los datos <datos>
-    Given que el usuario accede al sitio web de Selenium
-    When el usuario realiza una búsqueda usando los datos "<datos>"
-    Then deben mostrarse resultados relacionados usando los datos "<datos>"
-
-    Examples:
-      | datos |
-      | 1     |
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@web" "-Dwebdriver.driver=chrome"
 ```
 
-Los tags se colocan inmediatamente antes de cada `Scenario Outline`, tal como en el ejemplo. El framework valida la regla de nomenclatura al iniciar cada escenario y también cuando lee `ESCENARIO` desde Excel.
+### Logs técnicos
 
-## Excel por casos y escenarios
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@regression" "-Dexecution.logs=true"
+```
 
-Los escenarios Web continúan usando:
+---
+
+# Ejecución mediante GitHub Actions
+
+También es posible ejecutar las pruebas sin configurar el proyecto localmente.
+
+Ingresar a:
 
 ```text
-src/test/resources/data/DataTest.xlsx
+GitHub
+→ Actions
+→ Quality Engineering Pipeline
+→ Run workflow
 ```
 
-Cada fila representa un escenario ejecutable. Las columnas comunes son:
+El pipeline permite seleccionar:
 
-- `EJECUTAR`: primera columna; `SÍ` habilita la fila y `NO` la omite.
-- `ID_FILA`: identificador técnico de la fila; el feature lo referencia mediante la columna limpia `datos` de `Examples`.
-- `TAP`: identificador único y trazable del caso con formato `TAP - 001`. No se usa como filtro de Cucumber.
-- `ESCENARIO`: única descripción funcional; siempre comienza con `Validar`.
-- `RESULTADO_ESPERADO`: resultado que aparecerá en los reportes.
+```text
+Alcance
+├── Regresión
+├── Frontend
+├── Backend
+└── Tag específico
 
-Ninguno de los dos libros contiene una columna `TAG`. Las etiquetas `@TC_WEB_*` y `@TC_API_*` se declaran exclusivamente en los features para filtrar la ejecución.
+Navegador
+├── Chrome
+└── Edge
 
-| Hoja Web | Datos adicionales |
+Logs detallados
+├── false
+└── true
+
+Headless
+├── true
+└── false
+```
+
+Cuando se selecciona:
+
+```text
+Tag específico
+```
+
+puede ingresarse, por ejemplo:
+
+```text
+TC_WEB_001
+```
+
+o:
+
+```text
+@TC_WEB_001
+```
+
+El pipeline valida automáticamente que el tag exista antes de iniciar la ejecución.
+
+---
+
+# Reportes públicos
+
+Después de una ejecución válida, el pipeline publica automáticamente los reportes mediante GitHub Pages.
+
+## Dashboard
+
+```text
+https://josimar-hub995.github.io/qa-automation-serenity-screenplay/
+```
+
+## Dashboard Serenity
+
+```text
+https://josimar-hub995.github.io/qa-automation-serenity-screenplay/serenity/index.html
+```
+
+Cada nueva ejecución publicada actualiza GitHub Pages con el reporte correspondiente a esa ejecución.
+
+---
+
+# Requisitos previos
+
+Para una ejecución local se requiere:
+
+- Java 17
+- Maven
+- Git
+- Google Chrome o Microsoft Edge
+- Acceso a Internet para dependencias y WebDriver
+
+Validar Java:
+
+```powershell
+java -version
+```
+
+Validar Maven:
+
+```powershell
+mvn -version
+```
+
+Validar Git:
+
+```powershell
+git --version
+```
+
+---
+
+# Clonar el repositorio
+
+```powershell
+git clone https://github.com/josimar-hub995/qa-automation-serenity-screenplay.git
+```
+
+Ingresar al proyecto:
+
+```powershell
+cd qa-automation-serenity-screenplay
+```
+
+Ejecutar:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@regression"
+```
+
+---
+
+# Tecnologías utilizadas
+
+| Tecnología | Uso |
 |---|---|
-| `HOME` | Caso de carga y título |
-| `DOCUMENTATION` | Caso de navegación |
-| `SEARCH` | `VALOR_BUSQUEDA` |
+| Java 17 | Lenguaje principal |
+| Maven | Gestión de dependencias y ejecución |
+| Serenity BDD | Automatización y reportes |
+| Screenplay Pattern | Patrón de diseño |
+| Cucumber | Escenarios BDD |
+| Selenium WebDriver | Automatización Frontend |
+| Screenplay REST | Automatización Backend/API |
+| JUnit Platform | Motor de ejecución |
+| Excel | Gestión de datos de prueba |
+| GitHub Actions | Integración continua |
+| GitHub Pages | Publicación de reportes |
+| Chrome | Navegador soportado |
+| Microsoft Edge | Navegador soportado |
 
-La URL, los selectores lógicos y otros valores estables del ambiente continúan en `config/qa.properties`.
+---
 
-### Excel exclusivo para APIs
+# Características principales
 
-El flujo API activo usa un libro independiente:
+El framework permite:
+
+- Automatización Frontend.
+- Automatización Backend/API.
+- Ejecución de regresión.
+- Ejecución individual mediante tags.
+- Selección entre Chrome y Edge.
+- Ejecución Headless.
+- Logs resumidos o detallados.
+- Gestión de datos mediante Excel.
+- Control de ejecución mediante `EJECUTAR`.
+- Evidencias automáticas.
+- Dashboard personalizado.
+- Dashboard Serenity BDD.
+- Reportes Excel.
+- Reportes Word por escenario.
+- Reportes técnicos para errores.
+- Publicación mediante GitHub Pages.
+- Gestión segura de credenciales mediante GitHub Secrets.
+- Validación automática de tags.
+- Zona horaria configurada para Perú.
+
+---
+
+# Arquitectura del proyecto
+
+La solución utiliza Screenplay Pattern para separar responsabilidades y facilitar mantenimiento y escalabilidad.
 
 ```text
-src/test/resources/data/ApiDataTest.xlsx
+qa-automation-serenity-screenplay
+│
+├── .github
+│   └── workflows
+│       └── ...
+│
+├── reports
+│   └── REPORT_...
+│
+├── src
+│   └── test
+│       ├── java
+│       │   └── pe
+│       │       └── com
+│       │           └── challenge
+│       │               └── automation
+│       │                   ├── managers
+│       │                   ├── models
+│       │                   ├── reports
+│       │                   ├── runners
+│       │                   ├── utilities
+│       │                   └── ...
+│       │
+│       └── resources
+│           ├── config
+│           ├── features
+│           └── ...
+│
+├── serenity.properties
+├── pom.xml
+└── README.md
 ```
 
-Su hoja `API_CASES` contiene las columnas:
+---
+
+# Configuración de Serenity
+
+La configuración principal se encuentra en:
 
 ```text
-ID_FILA, EJECUTAR, ITERACION, TAP, CAPA, VERSION, API,
-ESCENARIO, RESULTADO_ESPERADO, CREDENCIALES, ENDPOINT, HEADERS,
-HEADER_ERROR_CONFIG, PARAMS, REQUEST_TYPE, BODY,
-ESTADO_HTTP_ESPERADO, RESPUESTA_ESPERADA
+serenity.properties
 ```
 
-- `ENDPOINT`, `PARAMS`, `REQUEST_TYPE`, `BODY`, el status y el response esperado se leen por fila.
-- `HEADERS` es un objeto JSON. Los nombres y valores de los headers de negocio no están codificados en Java.
-- Un valor como `${reqres.api.key}` se resuelve desde `-Dreqres.api.key` o `REQRES_API_KEY` sin guardar el secreto en el Excel ni en Git.
-- Puede añadir un header nuevo directamente en el JSON de `HEADERS`; el builder genérico lo enviará sin cambios de código.
-- `HEADER_ERROR_CONFIG` admite varias operaciones separadas por punto y coma: `OMIT:nombre`, `EMPTY:nombre` e `INCORRECT:nombre=valor`.
-- Las filas 1 a 3 están activas. Las filas 4 a 6 son plantillas de error con `EJECUTAR=NO`.
+```properties
+serenity.project.name=QA Automation Senior
+serenity.test.root=features
+serenity.outputDirectory=target/site/serenity
+serenity.take.screenshots=FOR_EACH_ACTION
+serenity.report.encoding=UTF-8
+serenity.console.colors=false
 
-La interpretación de errores vive en `configurations/HeaderErrorConfiguration`, la construcción de headers en `builders/ApiHeaderBuilder` y el armado de la petición en `builders/ApiRequestBuilder`. Los Step Definitions solo coordinan el caso.
+execution.logs=false
 
-## Selección dinámica del Excel
+webdriver.driver=chrome
+webdriver.autodownload=true
+webdriver.timeouts.implicitlywait=5000
+webdriver.wait.for.timeout=15000
+```
 
-La fuente se determina mediante tags:
+La configuración del ambiente se encuentra en:
 
-| Tag | Selección |
+```text
+src/test/resources/config/qa.properties
+```
+
+Las credenciales privadas no deben almacenarse directamente dentro de este archivo.
+
+---
+
+# Seguridad y credenciales
+
+La API Key utilizada durante las pruebas Backend se almacena en:
+
+```text
+GitHub
+→ Settings
+→ Secrets and variables
+→ Actions
+→ Repository secrets
+```
+
+Secret utilizado:
+
+```text
+REQRES_API_KEY
+```
+
+Durante la ejecución del pipeline, la credencial se inyecta temporalmente dentro del runner.
+
+La credencial:
+
+- No se almacena directamente en el código.
+- No debe incluirse en commits.
+- No se publica mediante GitHub Pages.
+- No debe almacenarse con su valor real en `qa.properties`.
+
+---
+
+# Alcances de ejecución
+
+## Regresión
+
+Tag:
+
+```text
+@regression
+```
+
+Comando:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@regression"
+```
+
+---
+
+## Frontend
+
+Tag:
+
+```text
+@web
+```
+
+Comando:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@web"
+```
+
+Con Chrome:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@web" "-Dwebdriver.driver=chrome"
+```
+
+Con Edge:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@web" "-Dwebdriver.driver=edge"
+```
+
+---
+
+## Backend
+
+Tag:
+
+```text
+@api
+```
+
+Comando:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@api"
+```
+
+Las ejecuciones exclusivamente Backend no necesitan navegador.
+
+---
+
+# Ejecución por tag específico
+
+Cualquier tag existente dentro de los `.feature` puede ejecutarse directamente.
+
+Frontend:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@TC_WEB_001"
+```
+
+Backend:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@TC_API_006"
+```
+
+Desde GitHub Actions también puede seleccionarse:
+
+```text
+Tag específico
+```
+
+e ingresar:
+
+```text
+TC_WEB_001
+```
+
+El pipeline agrega `@` cuando corresponda y verifica que el tag exista.
+
+---
+
+# Navegadores
+
+Para Frontend se soportan:
+
+```text
+Chrome
+Edge
+```
+
+Chrome:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@web" "-Dwebdriver.driver=chrome"
+```
+
+Edge:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@web" "-Dwebdriver.driver=edge"
+```
+
+---
+
+# Modo Headless
+
+Activar:
+
+```text
+-Dheadless.mode=true
+```
+
+Ejemplo:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@web" "-Dheadless.mode=true"
+```
+
+Desactivar:
+
+```text
+-Dheadless.mode=false
+```
+
+Ejemplo:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@web" "-Dheadless.mode=false"
+```
+
+---
+
+# Logs
+
+## Logs resumidos
+
+```text
+-Dexecution.logs=false
+```
+
+Ejemplo:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@regression" "-Dexecution.logs=false"
+```
+
+La consola prioriza:
+
+```text
+Progreso
+Ejecutados
+PASSED
+FAILED
+Resultado final
+URLs de reportes
+```
+
+## Logs detallados
+
+```text
+-Dexecution.logs=true
+```
+
+Ejemplo:
+
+```powershell
+mvn -q clean verify "-Dcucumber.filter.tags=@regression" "-Dexecution.logs=true"
+```
+
+---
+
+# Gestión de datos mediante Excel
+
+Los datos de prueba incluyen la columna:
+
+```text
+EJECUTAR
+```
+
+Cuando contiene:
+
+```text
+SI
+```
+
+el escenario continúa su ejecución.
+
+Cuando contiene:
+
+```text
+NO
+```
+
+el framework omite el caso.
+
+Ejemplo:
+
+```text
+Escenarios encontrados: 11
+
+EJECUTAR=SI: 8
+EJECUTAR=NO: 3
+```
+
+El resultado funcional será:
+
+```text
+Ejecutados: 8
+PASSED: 8
+FAILED: 0
+```
+
+Los escenarios configurados con `EJECUTAR=NO` no se contabilizan como fallos en el Dashboard personalizado.
+
+---
+
+# GitHub Actions
+
+Workflow:
+
+```text
+Quality Engineering Pipeline
+```
+
+Ruta:
+
+```text
+GitHub
+→ Actions
+→ Quality Engineering Pipeline
+→ Run workflow
+```
+
+El formulario permite configurar:
+
+| Parámetro | Opciones |
 |---|---|
-| `@xc-DataTest` | Libro `DataTest.xlsx` |
-| `@home` | Hoja `HOME` |
-| `@documentation` | Hoja `DOCUMENTATION` |
-| `@search` | Hoja `SEARCH` |
-| `@xc-ApiDataTest` | Libro `ApiDataTest.xlsx` |
-| `@api_cases` | Hoja `API_CASES` |
+| Alcance | Regresión / Frontend / Backend / Tag específico |
+| Tag específico | Tag personalizado |
+| Navegador | Chrome / Edge |
+| Logs | true / false |
+| Headless | true / false |
 
-Para un futuro libro `UsuariosQA.xlsx` con hoja `USUARIO`, los tags serían `@xc-UsuariosQA @usuario`. No se incluye una hoja vacía porque los casos actuales no requieren credenciales de usuario.
-
-## JSON y Step Definitions
-
-`.vscode/settings.json` enlaza los features con el glue Java para la extensión oficial de Cucumber:
-
-```json
-{
-  "cucumber.features": [
-    "src/test/resources/features/**/*.feature"
-  ],
-  "cucumber.glue": [
-    "src/test/java/pe/com/challenge/automation/stepdefinitions/**/*.java",
-    "src/test/java/pe/com/challenge/automation/hooks/**/*.java"
-  ]
-}
-```
-
-`src/test/resources/junit-platform.properties` configura el glue y el plugin de Serenity para Cucumber JVM.
-Además, cada ejecución genera el JSON estándar de Cucumber en `target/cucumber-reports/cucumber.json`.
-
-## Reportes
-
-Cada corrida genera una carpeta correlativa con número, palabra `REPORT`, fecha y hora:
+El campo `Tag específico` solamente es utilizado cuando el alcance seleccionado es:
 
 ```text
-reports/
-└── REPORT_001_20260918_143015/
-    ├── resumen/
-    │   ├── assets/
-    │   ├── dashboard.html
-    │   ├── execution_summary.json
-    │   └── resultado_ejecucion.xlsx
-    ├── serenity/
-    │   └── index.html
-    ├── word/
-    │   ├── TAP_001_REPORT_001.docx
-    │   ├── TAP_002_REPORT_001.docx
-    │   ├── ... un Word por cada escenario ejecutado
-    │   └── TAP_008_REPORT_001.docx
-    └── escenarios/
-        ├── TC_WEB_001_.../       # datos, logs, resultados y capturas por paso
-        ├── TC_WEB_002_.../
-        ├── TC_WEB_003_.../
-        ├── TC_WEB_004_.../
-        ├── TC_WEB_005_.../
-        ├── TC_API_006_.../
-        ├── TC_API_007_.../
-        └── TC_API_008_.../
+Tag específico
 ```
 
-Cada Word individual, `dashboard.html`, el consolidado Excel y el JSON muestran:
+En los demás alcances su contenido es ignorado.
 
-- TAP y escenario en español, sin una descripción funcional duplicada.
-- Resultado esperado.
-- Datos, libro y hoja utilizados.
-- Estado normalizado exclusivamente como `PASSED` o `FAILED`, y duración.
-- Página o servicio consumido, navegador/canal, paso exacto del fallo y mensaje técnico.
+---
 
-Cada Word comienza con una tabla profesional del caso (TAP, escenario, resultado esperado,
-navegador, página/servicio, Excel, hoja y datos). Después presenta cada paso Gherkin en el formato
-`19-09-2026 | 11:23:01 AM | Given/When/Then ...`, seguido de su captura centrada. Si un paso falla,
-incluye la última captura disponible, la causa y el stack trace.
-
-El dashboard contiene gráficos de estado, cobertura y duración. Su título, subtítulo y gráfica de canal se adaptan al filtro ejecutado: una corrida solo Web no muestra información API, una corrida solo API no muestra información Web y una corrida mixta muestra ambos canales. La tabla principal muestra únicamente `TAP`, `Escenario`, `Resultado esperado`, `Estado` y `Duración`; no incluye columnas `TAG` ni `Reportes`. Al hacer clic en cualquier parte de una fila API se despliega el método, endpoint, headers enviados con secretos enmascarados, parámetros, request body, status HTTP y response body. Cuando existe un `FAILED`, se crea además `error-report.html` dentro de la carpeta del escenario y su URL se imprime en consola.
-
-Los escenarios Web guardan capturas por paso y consola del navegador. Los escenarios API guardan
-`api_exchange.json`, `api_response.json`, logs y el detalle de Serenity. Las subcarpetas opcionales se crean bajo demanda;
-por ejemplo, un escenario API no genera carpetas vacías de capturas o consola del navegador.
-
-### Publicación en Jenkins
-
-El `Jenkinsfile` incluido archiva todos los reportes y publica `dashboard.html` mediante HTML Publisher. En la consola del pipeline se muestran dos direcciones distintas:
-
-- `URL LOCAL`: ruta `file:///...` dentro del agente que ejecutó Maven.
-- `URL PIPELINE`: ruta HTTP basada en `BUILD_URL`, accesible desde el navegador según los permisos de Jenkins.
-
-El pipeline requiere el plugin **HTML Publisher**. Además de la URL impresa, Jenkins mostrará el acceso **Dashboard QA** en la página de la ejecución.
-
-## Arquitectura
+# Flujo del pipeline
 
 ```text
-Feature y tags
-  -> DataSourceManager
-  -> DataTestManager
-  -> modelo tipado del escenario
-  -> Step Definition
-  -> Locator (Target) para Web / builders y configuraciones para API
-  -> Task Web o petición API genérica
-  -> Question
-  -> Word individual, dashboard HTML, reporte de fallo, Excel, JSON y Serenity
+Checkout
+    ↓
+Java 17
+    ↓
+Limpieza
+    ↓
+Configuración de ejecución
+    ↓
+Validación del tag
+    ↓
+Validación de configuración
+    ↓
+Validación de Secrets
+    ↓
+Inyección temporal de credenciales
+    ↓
+Validación del navegador
+    ↓
+Maven
+    ↓
+Ejecución Cucumber
+    ↓
+Dashboard personalizado
+    ↓
+Dashboard Serenity
+    ↓
+Validación del reporte generado
+    ↓
+Artifacts
+    ↓
+GitHub Pages
 ```
 
-Los Step Definitions no abren archivos ni conocen Apache POI. El libro, la hoja, los datos, el TAP, el escenario y el resultado esperado se resuelven antes de ejecutar las validaciones. El TAG se conserva solamente en el feature. Los `Target` Web se concentran en `src/test/java/pe/com/challenge/automation/locators`, una separación compatible con Screenplay.
+---
+
+# Dashboard personalizado
+
+Se genera dentro de:
+
+```text
+reports/REPORT_.../resumen/dashboard.html
+```
+
+Incluye:
+
+- Total de escenarios.
+- PASSED.
+- FAILED.
+- Pass Rate.
+- Duración.
+- Cobertura.
+- Detalle por escenario.
+- Resultados esperados.
+- Request API.
+- Response API.
+- HTTP Status.
+- Headers sanitizados.
+- Análisis de errores.
+
+El Dashboard utiliza el logo del proyecto como favicon de la pestaña del navegador.
+
+---
+
+# Dashboard Serenity
+
+Serenity genera su reporte en:
+
+```text
+target/site/serenity/index.html
+```
+
+---
+
+# Validación antes de publicar
+
+Antes de actualizar GitHub Pages se verifica:
+
+```text
+reports/REPORT_*
+```
+
+El pipeline exige que exista únicamente el reporte correspondiente a la ejecución actual.
+
+Además valida:
+
+```text
+execution_summary.json
+```
+
+Si se ejecuta:
+
+```text
+Frontend
+```
+
+el reporte no debe contener escenarios `TC_API_*`.
+
+Si se ejecuta:
+
+```text
+Backend
+```
+
+el reporte no debe contener escenarios `TC_WEB_*`.
+
+Una inconsistencia evita que se publique un reporte incorrecto.
+
+---
+
+# Artifacts
+
+Cada ejecución genera:
+
+```text
+quality-validation-report
+github-pages
+```
+
+## quality-validation-report
+
+Contiene las evidencias descargables.
+
+## github-pages
+
+Es utilizado por GitHub para publicar los archivos HTML mediante Pages.
+
+No representa una segunda ejecución de pruebas.
+
+---
+
+# Zona horaria
+
+El pipeline utiliza:
+
+```text
+America/Lima
+```
+
+Java también recibe:
+
+```text
+-Duser.timezone=America/Lima
+```
+
+De esta forma, la fecha y hora del reporte se mantienen alineadas con Perú.
+
+---
+
+# Ejemplo de resultado
+
+```text
+QA AUTOMATION | EJECUCION DE PRUEBAS
+
+100% | Completados 8/8 | PASSED 8 | FAILED 0
+
+QA AUTOMATION · REPORTE DE EJECUCION
+
+ESCENARIOS: 8
+PASSED: 8
+FAILED: 0
+
+RESULTADO FINAL: PASSED
+```
+
+---
+
+# Repositorio
+
+```text
+https://github.com/josimar-hub995/qa-automation-serenity-screenplay
+```
+
+## Dashboard
+
+```text
+https://josimar-hub995.github.io/qa-automation-serenity-screenplay/
+```
+
+## Dashboard Serenity
+
+```text
+https://josimar-hub995.github.io/qa-automation-serenity-screenplay/serenity/index.html
+```
+
+---
+
+# Quality Engineering
+
+La solución busca mantener:
+
+- Arquitectura mantenible.
+- Separación de responsabilidades.
+- Ejecuciones parametrizables.
+- Trazabilidad.
+- Gestión segura de credenciales.
+- Evidencias automatizadas.
+- Integración continua.
+- Publicación automática de resultados.
+- Escalabilidad para nuevos escenarios y servicios.
