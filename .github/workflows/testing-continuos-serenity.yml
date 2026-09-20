@@ -29,7 +29,7 @@ on:
         type: string
 
       browser:
-        description: Navegador (aplica a ejecuciones Frontend)
+        description: Navegador
         required: true
         default: Chrome
         type: choice
@@ -60,12 +60,16 @@ jobs:
     name: Quality Validation
     runs-on: ubuntu-latest
 
+    env:
+      TZ: America/Lima
+
     outputs:
       scope: ${{ steps.execution-config.outputs.scope }}
       tag: ${{ steps.execution-config.outputs.tag }}
       browser: ${{ steps.execution-config.outputs.browser }}
       logs: ${{ steps.execution-config.outputs.logs }}
       headless: ${{ steps.execution-config.outputs.headless }}
+      mode: ${{ steps.execution-config.outputs.mode }}
       requires_api: ${{ steps.execution-config.outputs.requires_api }}
 
     steps:
@@ -78,6 +82,25 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+
+      - name: Clean previous execution data
+        shell: bash
+        run: |
+          rm -rf target
+          rm -rf pages-site
+
+          if [ -d "reports" ]; then
+            find reports \
+              -maxdepth 1 \
+              -mindepth 1 \
+              -type d \
+              -name "REPORT_*" \
+              -exec rm -rf {} +
+          fi
+
+          mkdir -p reports
+
+          echo "Workspace preparado para una nueva ejecución."
 
       - name: Resolve execution configuration
         id: execution-config
@@ -100,16 +123,19 @@ jobs:
           case "$EXECUTION_SCOPE" in
             "Regresión")
               CUCUMBER_TAGS="@regression"
+              EXECUTION_MODE="MIXED"
               REQUIRES_API="true"
               ;;
 
             "Frontend")
               CUCUMBER_TAGS="@web"
+              EXECUTION_MODE="FRONTEND"
               REQUIRES_API="false"
               ;;
 
             "Backend")
               CUCUMBER_TAGS="@api"
+              EXECUTION_MODE="BACKEND"
               REQUIRES_API="true"
               ;;
 
@@ -132,10 +158,15 @@ jobs:
 
               CUCUMBER_TAGS="$SPECIFIC_TAG"
 
-              if [[ "$CUCUMBER_TAGS" == @TC_API_* ]] || [[ "$CUCUMBER_TAGS" == @api* ]]; then
+              if [[ "$CUCUMBER_TAGS" == @TC_API_* ]] || [[ "$CUCUMBER_TAGS" == "@api" ]]; then
+                EXECUTION_MODE="BACKEND"
                 REQUIRES_API="true"
-              else
+              elif [[ "$CUCUMBER_TAGS" == @TC_WEB_* ]] || [[ "$CUCUMBER_TAGS" == "@web" ]]; then
+                EXECUTION_MODE="FRONTEND"
                 REQUIRES_API="false"
+              else
+                EXECUTION_MODE="MIXED"
+                REQUIRES_API="true"
               fi
               ;;
 
@@ -145,9 +176,10 @@ jobs:
               ;;
           esac
 
-          if [ "$EXECUTION_SCOPE" = "Backend" ]; then
+          if [ "$EXECUTION_MODE" = "BACKEND" ]; then
             BROWSER_DRIVER=""
             BROWSER_DISPLAY="No aplica"
+            HEADLESS_DISPLAY="No aplica"
           else
             case "$SELECTED_BROWSER" in
               "Chrome")
@@ -165,20 +197,25 @@ jobs:
                 exit 1
                 ;;
             esac
+
+            HEADLESS_DISPLAY="$HEADLESS_MODE"
           fi
 
+          echo "EXECUTION_SCOPE=$EXECUTION_SCOPE" >> "$GITHUB_ENV"
+          echo "EXECUTION_MODE=$EXECUTION_MODE" >> "$GITHUB_ENV"
           echo "CUCUMBER_TAGS=$CUCUMBER_TAGS" >> "$GITHUB_ENV"
           echo "BROWSER_DRIVER=$BROWSER_DRIVER" >> "$GITHUB_ENV"
           echo "BROWSER_DISPLAY=$BROWSER_DISPLAY" >> "$GITHUB_ENV"
           echo "DETAILED_LOGS=$DETAILED_LOGS" >> "$GITHUB_ENV"
           echo "HEADLESS_MODE=$HEADLESS_MODE" >> "$GITHUB_ENV"
-          echo "EXECUTION_SCOPE=$EXECUTION_SCOPE" >> "$GITHUB_ENV"
+          echo "HEADLESS_DISPLAY=$HEADLESS_DISPLAY" >> "$GITHUB_ENV"
 
           echo "scope=$EXECUTION_SCOPE" >> "$GITHUB_OUTPUT"
           echo "tag=$CUCUMBER_TAGS" >> "$GITHUB_OUTPUT"
           echo "browser=$BROWSER_DISPLAY" >> "$GITHUB_OUTPUT"
           echo "logs=$DETAILED_LOGS" >> "$GITHUB_OUTPUT"
-          echo "headless=$HEADLESS_MODE" >> "$GITHUB_OUTPUT"
+          echo "headless=$HEADLESS_DISPLAY" >> "$GITHUB_OUTPUT"
+          echo "mode=$EXECUTION_MODE" >> "$GITHUB_OUTPUT"
           echo "requires_api=$REQUIRES_API" >> "$GITHUB_OUTPUT"
 
           echo ""
@@ -189,7 +226,8 @@ jobs:
           echo " Tag             : $CUCUMBER_TAGS"
           echo " Navegador       : $BROWSER_DISPLAY"
           echo " Logs detallados : $DETAILED_LOGS"
-          echo " Headless        : $HEADLESS_MODE"
+          echo " Headless        : $HEADLESS_DISPLAY"
+          echo " Zona horaria    : America/Lima"
           echo "================================================================================================================"
           echo ""
 
@@ -268,7 +306,7 @@ jobs:
           echo "Credencial runtime configurada."
 
       - name: Validate browser availability
-        if: steps.execution-config.outputs.scope != 'Backend'
+        if: steps.execution-config.outputs.mode != 'BACKEND'
         shell: bash
         run: |
           if [ "$BROWSER_DRIVER" = "chrome" ]; then
@@ -289,7 +327,7 @@ jobs:
           echo "Navegador disponible: $BROWSER_DISPLAY"
 
       - name: Prepare graphical execution
-        if: steps.execution-config.outputs.scope != 'Backend' && steps.execution-config.outputs.headless == 'false'
+        if: steps.execution-config.outputs.mode != 'BACKEND' && steps.execution-config.outputs.headless == 'false'
         shell: bash
         run: |
           if ! command -v xvfb-run >/dev/null 2>&1; then
@@ -298,15 +336,18 @@ jobs:
           fi
 
       - name: Execute automated validation
+        id: automated-tests
+        continue-on-error: true
         shell: bash
         env:
           REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
         run: |
-          if [ "$EXECUTION_SCOPE" = "Backend" ]; then
+          if [ "$EXECUTION_MODE" = "BACKEND" ]; then
 
             mvn clean verify \
               -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
-              -Dexecution.logs="${DETAILED_LOGS}"
+              -Dexecution.logs="${DETAILED_LOGS}" \
+              -Duser.timezone=America/Lima
 
           elif [ "$HEADLESS_MODE" = "true" ]; then
 
@@ -314,7 +355,8 @@ jobs:
               -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
               -Dwebdriver.driver="${BROWSER_DRIVER}" \
               -Dheadless.mode=true \
-              -Dexecution.logs="${DETAILED_LOGS}"
+              -Dexecution.logs="${DETAILED_LOGS}" \
+              -Duser.timezone=America/Lima
 
           else
 
@@ -322,65 +364,166 @@ jobs:
               -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
               -Dwebdriver.driver="${BROWSER_DRIVER}" \
               -Dheadless.mode=false \
-              -Dexecution.logs="${DETAILED_LOGS}"
+              -Dexecution.logs="${DETAILED_LOGS}" \
+              -Duser.timezone=America/Lima
 
           fi
 
-      - name: Upload execution evidence
+      - name: Resolve current execution report
+        id: current-report
         if: always()
+        shell: bash
+        run: |
+          mapfile -t REPORT_DIRS < <(
+            find reports \
+              -maxdepth 1 \
+              -mindepth 1 \
+              -type d \
+              -name "REPORT_*" \
+              -print
+          )
+
+          REPORT_COUNT="${#REPORT_DIRS[@]}"
+
+          if [ "$REPORT_COUNT" -eq 0 ]; then
+            echo "No se generó ningún reporte REPORT_* en esta ejecución."
+            exit 1
+          fi
+
+          if [ "$REPORT_COUNT" -ne 1 ]; then
+            echo "Se esperó exactamente un reporte de ejecución."
+            echo "Reportes encontrados: $REPORT_COUNT"
+            printf '%s\n' "${REPORT_DIRS[@]}"
+            exit 1
+          fi
+
+          CURRENT_REPORT_DIR="${REPORT_DIRS[0]}"
+
+          if [ ! -f "$CURRENT_REPORT_DIR/resumen/dashboard.html" ]; then
+            echo "No existe el dashboard de la ejecución actual."
+            exit 1
+          fi
+
+          if [ ! -f "$CURRENT_REPORT_DIR/resumen/execution_summary.json" ]; then
+            echo "No existe execution_summary.json para la ejecución actual."
+            exit 1
+          fi
+
+          echo "CURRENT_REPORT_DIR=$CURRENT_REPORT_DIR" >> "$GITHUB_ENV"
+          echo "path=$CURRENT_REPORT_DIR" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "Reporte actual:"
+          echo "$CURRENT_REPORT_DIR"
+          echo ""
+
+      - name: Validate current report scope
+        if: always() && steps.current-report.outcome == 'success'
+        shell: bash
+        run: |
+          SUMMARY="$CURRENT_REPORT_DIR/resumen/execution_summary.json"
+
+          TOTAL=$(jq -r '.total // 0' "$SUMMARY")
+          PASSED=$(jq -r '.passed // 0' "$SUMMARY")
+          FAILED=$(jq -r '.failed // 0' "$SUMMARY")
+
+          echo ""
+          echo "================================================================================================================"
+          echo "                                      VALIDACION DEL REPORTE"
+          echo "================================================================================================================"
+          echo " Reporte          : $CURRENT_REPORT_DIR"
+          echo " Alcance          : $EXECUTION_SCOPE"
+          echo " Tag              : $CUCUMBER_TAGS"
+          echo " Escenarios       : $TOTAL"
+          echo " PASSED           : $PASSED"
+          echo " FAILED           : $FAILED"
+          echo " GitHub Run       : ${{ github.run_id }}"
+          echo "================================================================================================================"
+          echo ""
+
+          if [ "$EXECUTION_SCOPE" = "Frontend" ]; then
+            API_COUNT=$(jq \
+              '[.scenarios[]? | select((.tag // "") | startswith("@TC_API_"))] | length' \
+              "$SUMMARY")
+
+            if [ "$API_COUNT" -gt 0 ]; then
+              echo "El reporte actual contiene escenarios API y la ejecución solicitada fue Frontend."
+              exit 1
+            fi
+          fi
+
+          if [ "$EXECUTION_SCOPE" = "Backend" ]; then
+            WEB_COUNT=$(jq \
+              '[.scenarios[]? | select((.tag // "") | startswith("@TC_WEB_"))] | length' \
+              "$SUMMARY")
+
+            if [ "$WEB_COUNT" -gt 0 ]; then
+              echo "El reporte actual contiene escenarios Web y la ejecución solicitada fue Backend."
+              exit 1
+            fi
+          fi
+
+          echo "El reporte corresponde a la ejecución actual."
+
+      - name: Upload execution evidence
+        if: always() && steps.current-report.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: quality-validation-report
           path: |
-            reports/
+            ${{ steps.current-report.outputs.path }}/
             target/site/serenity/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Prepare public report
-        if: always() && github.event_name != 'pull_request'
+      - name: Prepare current report for GitHub Pages
+        if: always() && github.event_name != 'pull_request' && steps.current-report.outcome == 'success'
         shell: bash
         run: |
           rm -rf pages-site
           mkdir -p pages-site
 
-          REPORT_DIR=$(
-            ls -dt reports/REPORT_* 2>/dev/null \
-            | head -n 1 \
-            || true
-          )
-
-          if [ -n "$REPORT_DIR" ] && [ -d "$REPORT_DIR" ]; then
-            echo "Reporte de ejecución localizado."
-            cp -R "$REPORT_DIR"/. pages-site/
-          else
-            echo "No se encontró ningún reporte REPORT_*."
-          fi
+          cp -R "$CURRENT_REPORT_DIR"/. pages-site/
 
           if [ -d "target/site/serenity" ]; then
             rm -rf pages-site/serenity
             mkdir -p pages-site/serenity
             cp -R target/site/serenity/. pages-site/serenity/
           else
-            echo "No se encontró el reporte Serenity."
+            echo "No se encontró target/site/serenity."
+            exit 1
           fi
 
           touch pages-site/.nojekyll
 
-          if [ -f "pages-site/resumen/dashboard.html" ]; then
+          cat > pages-site/execution-metadata.json <<EOF
+          {
+            "runId": "${{ github.run_id }}",
+            "runNumber": "${{ github.run_number }}",
+            "scope": "${EXECUTION_SCOPE}",
+            "tag": "${CUCUMBER_TAGS}",
+            "browser": "${BROWSER_DISPLAY}",
+            "headless": "${HEADLESS_DISPLAY}",
+            "timezone": "America/Lima",
+            "report": "$(basename "$CURRENT_REPORT_DIR")"
+          }
+          EOF
 
-            cat > pages-site/index.html <<'EOF'
+          cat > pages-site/index.html <<EOF
           <!DOCTYPE html>
           <html lang="es">
           <head>
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1">
-              <meta http-equiv="refresh" content="0; url=resumen/dashboard.html">
+              <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+              <meta http-equiv="Pragma" content="no-cache">
+              <meta http-equiv="Expires" content="0">
+              <meta http-equiv="refresh" content="0; url=resumen/dashboard.html?run=${{ github.run_id }}">
               <title>Quality Engineering Report</title>
           </head>
           <body>
               <p>
-                  <a href="resumen/dashboard.html">
+                  <a href="resumen/dashboard.html?run=${{ github.run_id }}">
                       Abrir dashboard
                   </a>
               </p>
@@ -388,73 +531,36 @@ jobs:
           </html>
           EOF
 
-          elif [ -f "pages-site/serenity/index.html" ]; then
-
-            cat > pages-site/index.html <<'EOF'
-          <!DOCTYPE html>
-          <html lang="es">
-          <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1">
-              <meta http-equiv="refresh" content="0; url=serenity/index.html">
-              <title>Quality Engineering Report</title>
-          </head>
-          <body>
-              <p>
-                  <a href="serenity/index.html">
-                      Abrir dashboard Serenity
-                  </a>
-              </p>
-          </body>
-          </html>
-          EOF
-
-          else
-
-            cat > pages-site/index.html <<'EOF'
-          <!DOCTYPE html>
-          <html lang="es">
-          <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1">
-              <title>Quality Engineering Report</title>
-          </head>
-          <body>
-              <h1>Quality Engineering Report</h1>
-              <p>No se encontró un reporte generado para esta ejecución.</p>
-          </body>
-          </html>
-          EOF
-
-          fi
-
           echo ""
           echo "================================================================================================================"
-          echo "                                      REPORTE PREPARADO"
+          echo "                                      REPORTE LISTO PARA PUBLICAR"
+          echo "================================================================================================================"
+          echo " GitHub Run : ${{ github.run_id }}"
+          echo " Reporte    : $CURRENT_REPORT_DIR"
+          echo " Alcance    : $EXECUTION_SCOPE"
+          echo " Tag        : $CUCUMBER_TAGS"
           echo "================================================================================================================"
           echo ""
-
-          find pages-site \
-            -maxdepth 2 \
-            -type f \
-            | sort
-
-          echo ""
-          echo "================================================================================================================"
 
       - name: Configure GitHub Pages
-        if: always() && github.event_name != 'pull_request'
+        if: always() && github.event_name != 'pull_request' && steps.current-report.outcome == 'success'
         uses: actions/configure-pages@v6
 
-      - name: Upload GitHub Pages artifact
-        if: always() && github.event_name != 'pull_request'
+      - name: Upload current report to GitHub Pages
+        if: always() && github.event_name != 'pull_request' && steps.current-report.outcome == 'success'
         uses: actions/upload-pages-artifact@v5
         with:
           path: pages-site
 
+      - name: Validate test result
+        if: steps.automated-tests.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "La ejecución automatizada finalizó con errores."
+          exit 1
+
   publish-report:
     name: Publish Reports
-
     if: always() && github.event_name != 'pull_request'
 
     needs:
@@ -477,7 +583,7 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Publish public reports
+      - name: Publish current execution
         id: deployment
         uses: actions/deploy-pages@v5
 
@@ -491,6 +597,10 @@ jobs:
           HEADLESS_MODE: ${{ needs.quality-validation.outputs.headless }}
         run: |
           BASE_URL="${{ steps.deployment.outputs.page_url }}"
+          CACHE_KEY="${{ github.run_id }}"
+
+          DASHBOARD_URL="${BASE_URL}resumen/dashboard.html?run=${CACHE_KEY}"
+          SERENITY_URL="${BASE_URL}serenity/index.html?run=${CACHE_KEY}"
 
           echo ""
           echo "================================================================================================================"
@@ -498,16 +608,19 @@ jobs:
           echo "================================================================================================================"
           echo ""
           echo " DASHBOARD"
-          echo " ${BASE_URL}"
+          echo " ${DASHBOARD_URL}"
           echo ""
           echo " DASHBOARD SERENITY"
-          echo " ${BASE_URL}serenity/index.html"
+          echo " ${SERENITY_URL}"
           echo ""
           echo " REPOSITORIO"
           echo " https://github.com/${{ github.repository }}"
           echo ""
           echo " PIPELINE"
           echo " https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo ""
+          echo " GITHUB RUN"
+          echo " ${{ github.run_id }}"
           echo ""
           echo "================================================================================================================"
 
@@ -518,8 +631,8 @@ jobs:
             echo ""
             echo "| Recurso | Acceso |"
             echo "|---|---|"
-            echo "| Dashboard | [Abrir dashboard](${BASE_URL}) |"
-            echo "| Dashboard Serenity | [Abrir dashboard Serenity](${BASE_URL}serenity/index.html) |"
+            echo "| Dashboard | [Abrir dashboard](${DASHBOARD_URL}) |"
+            echo "| Dashboard Serenity | [Abrir dashboard Serenity](${SERENITY_URL}) |"
             echo "| Repositorio | [Abrir repositorio](https://github.com/${{ github.repository }}) |"
             echo "| Pipeline | [Abrir ejecución](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
             echo ""
@@ -532,4 +645,6 @@ jobs:
             echo "| Navegador | ${SELECTED_BROWSER} |"
             echo "| Logs detallados | ${DETAILED_LOGS} |"
             echo "| Headless | ${HEADLESS_MODE} |"
+            echo "| Zona horaria | America/Lima |"
+            echo "| GitHub Run | ${{ github.run_id }} |"
           } >> "$GITHUB_STEP_SUMMARY"
