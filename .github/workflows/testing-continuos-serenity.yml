@@ -23,12 +23,13 @@ on:
           - Tag específico
 
       specific_tag:
-        description: Tag específico
+        description: Tag específico (solo aplica si selecciona "Tag específico")
         required: false
+        default: ''
         type: string
 
       browser:
-        description: Navegador
+        description: Navegador (aplica a ejecuciones Frontend)
         required: true
         default: Chrome
         type: choice
@@ -130,7 +131,12 @@ jobs:
               fi
 
               CUCUMBER_TAGS="$SPECIFIC_TAG"
-              REQUIRES_API="true"
+
+              if [[ "$CUCUMBER_TAGS" == @TC_API_* ]] || [[ "$CUCUMBER_TAGS" == @api* ]]; then
+                REQUIRES_API="true"
+              else
+                REQUIRES_API="false"
+              fi
               ;;
 
             *)
@@ -139,29 +145,38 @@ jobs:
               ;;
           esac
 
-          case "$SELECTED_BROWSER" in
-            "Chrome")
-              BROWSER_DRIVER="chrome"
-              ;;
+          if [ "$EXECUTION_SCOPE" = "Backend" ]; then
+            BROWSER_DRIVER=""
+            BROWSER_DISPLAY="No aplica"
+          else
+            case "$SELECTED_BROWSER" in
+              "Chrome")
+                BROWSER_DRIVER="chrome"
+                BROWSER_DISPLAY="Chrome"
+                ;;
 
-            "Edge")
-              BROWSER_DRIVER="edge"
-              ;;
+              "Edge")
+                BROWSER_DRIVER="edge"
+                BROWSER_DISPLAY="Edge"
+                ;;
 
-            *)
-              echo "Navegador no soportado."
-              exit 1
-              ;;
-          esac
+              *)
+                echo "Navegador no soportado."
+                exit 1
+                ;;
+            esac
+          fi
 
           echo "CUCUMBER_TAGS=$CUCUMBER_TAGS" >> "$GITHUB_ENV"
           echo "BROWSER_DRIVER=$BROWSER_DRIVER" >> "$GITHUB_ENV"
+          echo "BROWSER_DISPLAY=$BROWSER_DISPLAY" >> "$GITHUB_ENV"
           echo "DETAILED_LOGS=$DETAILED_LOGS" >> "$GITHUB_ENV"
           echo "HEADLESS_MODE=$HEADLESS_MODE" >> "$GITHUB_ENV"
+          echo "EXECUTION_SCOPE=$EXECUTION_SCOPE" >> "$GITHUB_ENV"
 
           echo "scope=$EXECUTION_SCOPE" >> "$GITHUB_OUTPUT"
           echo "tag=$CUCUMBER_TAGS" >> "$GITHUB_OUTPUT"
-          echo "browser=$SELECTED_BROWSER" >> "$GITHUB_OUTPUT"
+          echo "browser=$BROWSER_DISPLAY" >> "$GITHUB_OUTPUT"
           echo "logs=$DETAILED_LOGS" >> "$GITHUB_OUTPUT"
           echo "headless=$HEADLESS_MODE" >> "$GITHUB_OUTPUT"
           echo "requires_api=$REQUIRES_API" >> "$GITHUB_OUTPUT"
@@ -172,7 +187,7 @@ jobs:
           echo "================================================================================================================"
           echo " Alcance         : $EXECUTION_SCOPE"
           echo " Tag             : $CUCUMBER_TAGS"
-          echo " Navegador       : $SELECTED_BROWSER"
+          echo " Navegador       : $BROWSER_DISPLAY"
           echo " Logs detallados : $DETAILED_LOGS"
           echo " Headless        : $HEADLESS_MODE"
           echo "================================================================================================================"
@@ -271,10 +286,10 @@ jobs:
             fi
           fi
 
-          echo "Navegador disponible: $BROWSER_DRIVER"
+          echo "Navegador disponible: $BROWSER_DISPLAY"
 
       - name: Prepare graphical execution
-        if: steps.execution-config.outputs.headless == 'false'
+        if: steps.execution-config.outputs.scope != 'Backend' && steps.execution-config.outputs.headless == 'false'
         shell: bash
         run: |
           if ! command -v xvfb-run >/dev/null 2>&1; then
@@ -287,18 +302,28 @@ jobs:
         env:
           REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
         run: |
-          if [ "$HEADLESS_MODE" = "true" ]; then
+          if [ "$EXECUTION_SCOPE" = "Backend" ]; then
+
+            mvn clean verify \
+              -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
+              -Dexecution.logs="${DETAILED_LOGS}"
+
+          elif [ "$HEADLESS_MODE" = "true" ]; then
+
             mvn clean verify \
               -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
               -Dwebdriver.driver="${BROWSER_DRIVER}" \
               -Dheadless.mode=true \
               -Dexecution.logs="${DETAILED_LOGS}"
+
           else
+
             xvfb-run -a mvn clean verify \
               -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
               -Dwebdriver.driver="${BROWSER_DRIVER}" \
               -Dheadless.mode=false \
               -Dexecution.logs="${DETAILED_LOGS}"
+
           fi
 
       - name: Upload execution evidence
@@ -343,6 +368,7 @@ jobs:
           touch pages-site/.nojekyll
 
           if [ -f "pages-site/resumen/dashboard.html" ]; then
+
             cat > pages-site/index.html <<'EOF'
           <!DOCTYPE html>
           <html lang="es">
@@ -363,6 +389,7 @@ jobs:
           EOF
 
           elif [ -f "pages-site/serenity/index.html" ]; then
+
             cat > pages-site/index.html <<'EOF'
           <!DOCTYPE html>
           <html lang="es">
@@ -383,6 +410,7 @@ jobs:
           EOF
 
           else
+
             cat > pages-site/index.html <<'EOF'
           <!DOCTYPE html>
           <html lang="es">
@@ -397,6 +425,7 @@ jobs:
           </body>
           </html>
           EOF
+
           fi
 
           echo ""
@@ -425,6 +454,7 @@ jobs:
 
   publish-report:
     name: Publish Reports
+
     if: always() && github.event_name != 'pull_request'
 
     needs:
