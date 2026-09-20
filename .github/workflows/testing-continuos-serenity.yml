@@ -1,4 +1,4 @@
-name: Quality Engineering Validation
+name: Quality Engineering Pipeline
 
 on:
   push:
@@ -11,28 +11,30 @@ on:
 
   workflow_dispatch:
     inputs:
-      execution_target:
-        description: Alcance de la validación
+      execution_scope:
+        description: Alcance de la ejecución
         required: true
-        default: Validación completa
+        default: Regresión
         type: choice
         options:
-          - Validación completa
-          - Suite de regresión
-          - Validación de interfaz
-          - Validación de servicios
-          - Flujo principal
-          - TC_WEB_001
-          - TC_WEB_002
-          - TC_WEB_003
-          - TC_WEB_004
-          - TC_WEB_005
-          - TC_API_006
-          - TC_API_007
-          - TC_API_008
-          - TC_API_009
-          - TC_API_010
-          - TC_API_011
+          - Regresión
+          - Frontend
+          - Backend
+          - Tag específico
+
+      specific_tag:
+        description: Tag específico
+        required: false
+        type: string
+
+      browser:
+        description: Navegador
+        required: true
+        default: Chrome
+        type: choice
+        options:
+          - Chrome
+          - Edge
 
       detailed_logs:
         description: Mostrar logs técnicos detallados
@@ -54,14 +56,16 @@ permissions:
 
 jobs:
   quality-validation:
-    name: Automated Quality Validation
+    name: Quality Validation
     runs-on: ubuntu-latest
 
     outputs:
-      target: ${{ steps.execution-config.outputs.target }}
+      scope: ${{ steps.execution-config.outputs.scope }}
       tag: ${{ steps.execution-config.outputs.tag }}
+      browser: ${{ steps.execution-config.outputs.browser }}
       logs: ${{ steps.execution-config.outputs.logs }}
       headless: ${{ steps.execution-config.outputs.headless }}
+      requires_api: ${{ steps.execution-config.outputs.requires_api }}
 
     steps:
       - name: Checkout source
@@ -79,120 +83,198 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            EXECUTION_TARGET="${{ inputs.execution_target }}"
+            EXECUTION_SCOPE="${{ inputs.execution_scope }}"
+            SPECIFIC_TAG="${{ inputs.specific_tag }}"
+            SELECTED_BROWSER="${{ inputs.browser }}"
             DETAILED_LOGS="${{ inputs.detailed_logs }}"
             HEADLESS_MODE="${{ inputs.headless_mode }}"
           else
-            EXECUTION_TARGET="Validación completa"
+            EXECUTION_SCOPE="Regresión"
+            SPECIFIC_TAG=""
+            SELECTED_BROWSER="Chrome"
             DETAILED_LOGS="false"
             HEADLESS_MODE="true"
           fi
 
-          case "$EXECUTION_TARGET" in
-            "Validación completa")
-              CUCUMBER_TAGS="@automation"
-              REQUIRES_API="true"
-              ;;
-
-            "Suite de regresión")
+          case "$EXECUTION_SCOPE" in
+            "Regresión")
               CUCUMBER_TAGS="@regression"
               REQUIRES_API="true"
               ;;
 
-            "Validación de interfaz")
+            "Frontend")
               CUCUMBER_TAGS="@web"
               REQUIRES_API="false"
               ;;
 
-            "Validación de servicios")
+            "Backend")
               CUCUMBER_TAGS="@api"
               REQUIRES_API="true"
               ;;
 
-            "Flujo principal")
-              CUCUMBER_TAGS="@happyPath"
-              REQUIRES_API="true"
-              ;;
+            "Tag específico")
+              SPECIFIC_TAG="$(echo "$SPECIFIC_TAG" | xargs)"
 
-            TC_WEB_*)
-              CUCUMBER_TAGS="@$EXECUTION_TARGET"
-              REQUIRES_API="false"
-              ;;
+              if [ -z "$SPECIFIC_TAG" ]; then
+                echo "Debe ingresar un tag específico."
+                exit 1
+              fi
 
-            TC_API_*)
-              CUCUMBER_TAGS="@$EXECUTION_TARGET"
+              if [[ ! "$SPECIFIC_TAG" =~ ^@?[A-Za-z0-9_-]+$ ]]; then
+                echo "El formato del tag no es válido."
+                exit 1
+              fi
+
+              if [[ "$SPECIFIC_TAG" != @* ]]; then
+                SPECIFIC_TAG="@$SPECIFIC_TAG"
+              fi
+
+              CUCUMBER_TAGS="$SPECIFIC_TAG"
               REQUIRES_API="true"
               ;;
 
             *)
-              echo "Configuración de ejecución no reconocida."
+              echo "Alcance de ejecución no reconocido."
+              exit 1
+              ;;
+          esac
+
+          case "$SELECTED_BROWSER" in
+            "Chrome")
+              BROWSER_DRIVER="chrome"
+              ;;
+
+            "Edge")
+              BROWSER_DRIVER="edge"
+              ;;
+
+            *)
+              echo "Navegador no soportado."
               exit 1
               ;;
           esac
 
           echo "CUCUMBER_TAGS=$CUCUMBER_TAGS" >> "$GITHUB_ENV"
+          echo "BROWSER_DRIVER=$BROWSER_DRIVER" >> "$GITHUB_ENV"
           echo "DETAILED_LOGS=$DETAILED_LOGS" >> "$GITHUB_ENV"
           echo "HEADLESS_MODE=$HEADLESS_MODE" >> "$GITHUB_ENV"
-          echo "REQUIRES_API=$REQUIRES_API" >> "$GITHUB_ENV"
 
-          echo "target=$EXECUTION_TARGET" >> "$GITHUB_OUTPUT"
+          echo "scope=$EXECUTION_SCOPE" >> "$GITHUB_OUTPUT"
           echo "tag=$CUCUMBER_TAGS" >> "$GITHUB_OUTPUT"
+          echo "browser=$SELECTED_BROWSER" >> "$GITHUB_OUTPUT"
           echo "logs=$DETAILED_LOGS" >> "$GITHUB_OUTPUT"
           echo "headless=$HEADLESS_MODE" >> "$GITHUB_OUTPUT"
+          echo "requires_api=$REQUIRES_API" >> "$GITHUB_OUTPUT"
 
           echo ""
           echo "================================================================================================================"
           echo "                                      CONFIGURACION DE EJECUCION"
           echo "================================================================================================================"
-          echo " Alcance         : $EXECUTION_TARGET"
+          echo " Alcance         : $EXECUTION_SCOPE"
           echo " Tag             : $CUCUMBER_TAGS"
+          echo " Navegador       : $SELECTED_BROWSER"
           echo " Logs detallados : $DETAILED_LOGS"
           echo " Headless        : $HEADLESS_MODE"
           echo "================================================================================================================"
           echo ""
 
-      - name: Validate sensitive configuration
-        if: env.REQUIRES_API == 'true'
+      - name: Validate specific tag
+        if: steps.execution-config.outputs.scope == 'Tag específico'
         shell: bash
-        env:
-          REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
         run: |
-          CONFIG_FILE="src/test/resources/config/qa.properties"
+          AVAILABLE_TAGS=$(
+            grep -Rhs \
+              --include="*.feature" \
+              -oE '@[A-Za-z0-9_-]+' \
+              src/test/resources \
+              | sort -u
+          )
 
-          if [ -z "$REQRES_API_KEY" ]; then
-            echo "El secret REQRES_API_KEY no está configurado."
+          if ! echo "$AVAILABLE_TAGS" | grep -Fxq "$CUCUMBER_TAGS"; then
+            echo ""
+            echo "El tag $CUCUMBER_TAGS no existe en los archivos .feature."
+            echo ""
+            echo "Tags disponibles:"
+            echo "$AVAILABLE_TAGS"
+            echo ""
             exit 1
           fi
+
+          echo "Tag validado correctamente: $CUCUMBER_TAGS"
+
+      - name: Validate repository configuration
+        shell: bash
+        run: |
+          CONFIG_FILE="src/test/resources/config/qa.properties"
 
           if [ ! -f "$CONFIG_FILE" ]; then
             echo "No se encontró $CONFIG_FILE"
             exit 1
           fi
 
-          if grep -Eq '^[[:space:]]*reqres\.api\.key[[:space:]]*=[[:space:]]*[^[:space:]]+' "$CONFIG_FILE"; then
+          if grep -Eq \
+            '^[[:space:]]*reqres\.api\.key[[:space:]]*=[[:space:]]*[^[:space:]]+' \
+            "$CONFIG_FILE"; then
+
             echo "Se detectó una credencial Reqres almacenada en qa.properties."
-            echo "Elimine el valor del repositorio y utilice REQRES_API_KEY."
+            echo "La credencial debe almacenarse únicamente en GitHub Secrets."
             exit 1
           fi
 
-          echo "Configuración sensible validada correctamente."
+          echo "Configuración del repositorio validada correctamente."
+
+      - name: Validate API secret
+        if: steps.execution-config.outputs.requires_api == 'true'
+        shell: bash
+        env:
+          REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
+        run: |
+          if [ -z "$REQRES_API_KEY" ]; then
+            echo "El secret REQRES_API_KEY no está configurado."
+            exit 1
+          fi
+
+          echo "Secret requerido disponible."
 
       - name: Inject runtime credential
-        if: env.REQUIRES_API == 'true'
+        if: steps.execution-config.outputs.requires_api == 'true'
         shell: bash
         env:
           REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
         run: |
           CONFIG_FILE="src/test/resources/config/qa.properties"
 
-          sed -i '/^[[:space:]]*reqres\.api\.key[[:space:]]*=/d' "$CONFIG_FILE"
+          sed -i \
+            '/^[[:space:]]*reqres\.api\.key[[:space:]]*=/d' \
+            "$CONFIG_FILE"
 
           printf '\nreqres.api.key=%s\n' "$REQRES_API_KEY" >> "$CONFIG_FILE"
 
           echo "Credencial runtime configurada."
 
+      - name: Validate browser availability
+        if: steps.execution-config.outputs.scope != 'Backend'
+        shell: bash
+        run: |
+          if [ "$BROWSER_DRIVER" = "chrome" ]; then
+            if ! command -v google-chrome >/dev/null 2>&1; then
+              echo "Google Chrome no está disponible en el runner."
+              exit 1
+            fi
+          fi
+
+          if [ "$BROWSER_DRIVER" = "edge" ]; then
+            if ! command -v microsoft-edge >/dev/null 2>&1 && \
+               ! command -v microsoft-edge-stable >/dev/null 2>&1; then
+              echo "Microsoft Edge no está disponible en el runner."
+              exit 1
+            fi
+          fi
+
+          echo "Navegador disponible: $BROWSER_DRIVER"
+
       - name: Prepare graphical execution
-        if: env.HEADLESS_MODE == 'false'
+        if: steps.execution-config.outputs.headless == 'false'
         shell: bash
         run: |
           if ! command -v xvfb-run >/dev/null 2>&1; then
@@ -208,11 +290,13 @@ jobs:
           if [ "$HEADLESS_MODE" = "true" ]; then
             mvn clean verify \
               -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
+              -Dwebdriver.driver="${BROWSER_DRIVER}" \
               -Dheadless.mode=true \
               -Dexecution.logs="${DETAILED_LOGS}"
           else
             xvfb-run -a mvn clean verify \
               -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
+              -Dwebdriver.driver="${BROWSER_DRIVER}" \
               -Dheadless.mode=false \
               -Dexecution.logs="${DETAILED_LOGS}"
           fi
@@ -221,7 +305,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: quality-validation-${{ github.run_number }}-${{ github.run_attempt }}
+          name: quality-validation-report
           path: |
             reports/
             target/site/serenity/
@@ -252,6 +336,8 @@ jobs:
             rm -rf pages-site/serenity
             mkdir -p pages-site/serenity
             cp -R target/site/serenity/. pages-site/serenity/
+          else
+            echo "No se encontró el reporte Serenity."
           fi
 
           touch pages-site/.nojekyll
@@ -267,7 +353,11 @@ jobs:
               <title>Quality Engineering Report</title>
           </head>
           <body>
-              <p><a href="resumen/dashboard.html">Abrir reporte de ejecución</a></p>
+              <p>
+                  <a href="resumen/dashboard.html">
+                      Abrir dashboard
+                  </a>
+              </p>
           </body>
           </html>
           EOF
@@ -283,7 +373,11 @@ jobs:
               <title>Quality Engineering Report</title>
           </head>
           <body>
-              <p><a href="serenity/index.html">Abrir reporte Serenity</a></p>
+              <p>
+                  <a href="serenity/index.html">
+                      Abrir dashboard Serenity
+                  </a>
+              </p>
           </body>
           </html>
           EOF
@@ -309,26 +403,28 @@ jobs:
           echo "================================================================================================================"
           echo "                                      REPORTE PREPARADO"
           echo "================================================================================================================"
+          echo ""
 
           find pages-site \
             -maxdepth 2 \
             -type f \
             | sort
 
+          echo ""
           echo "================================================================================================================"
 
       - name: Configure GitHub Pages
         if: always() && github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload GitHub Pages artifact
         if: always() && github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: pages-site
 
   publish-report:
-    name: Publish Quality Report
+    name: Publish Reports
     if: always() && github.event_name != 'pull_request'
 
     needs:
@@ -351,15 +447,16 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Publish public report
+      - name: Publish public reports
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
       - name: Show public report URLs
         shell: bash
         env:
-          EXECUTION_TARGET: ${{ needs.quality-validation.outputs.target }}
+          EXECUTION_SCOPE: ${{ needs.quality-validation.outputs.scope }}
           EXECUTION_TAG: ${{ needs.quality-validation.outputs.tag }}
+          SELECTED_BROWSER: ${{ needs.quality-validation.outputs.browser }}
           DETAILED_LOGS: ${{ needs.quality-validation.outputs.logs }}
           HEADLESS_MODE: ${{ needs.quality-validation.outputs.headless }}
         run: |
@@ -370,19 +467,16 @@ jobs:
           echo "                                      QUALITY ENGINEERING REPORT"
           echo "================================================================================================================"
           echo ""
-          echo " DASHBOARD GENERAL"
+          echo " DASHBOARD"
           echo " ${BASE_URL}"
           echo ""
-          echo " DASHBOARD DIRECTO"
-          echo " ${BASE_URL}resumen/dashboard.html"
-          echo ""
-          echo " SERENITY BDD"
+          echo " DASHBOARD SERENITY"
           echo " ${BASE_URL}serenity/index.html"
           echo ""
           echo " REPOSITORIO"
           echo " https://github.com/${{ github.repository }}"
           echo ""
-          echo " EJECUCION"
+          echo " PIPELINE"
           echo " https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo ""
           echo "================================================================================================================"
@@ -394,9 +488,8 @@ jobs:
             echo ""
             echo "| Recurso | Acceso |"
             echo "|---|---|"
-            echo "| Dashboard | [Abrir Dashboard](${BASE_URL}) |"
-            echo "| Dashboard directo | [Abrir reporte](${BASE_URL}resumen/dashboard.html) |"
-            echo "| Serenity BDD | [Abrir Serenity](${BASE_URL}serenity/index.html) |"
+            echo "| Dashboard | [Abrir dashboard](${BASE_URL}) |"
+            echo "| Dashboard Serenity | [Abrir dashboard Serenity](${BASE_URL}serenity/index.html) |"
             echo "| Repositorio | [Abrir repositorio](https://github.com/${{ github.repository }}) |"
             echo "| Pipeline | [Abrir ejecución](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
             echo ""
@@ -404,8 +497,9 @@ jobs:
             echo ""
             echo "| Parámetro | Valor |"
             echo "|---|---|"
-            echo "| Alcance | ${EXECUTION_TARGET} |"
+            echo "| Alcance | ${EXECUTION_SCOPE} |"
             echo "| Tag | ${EXECUTION_TAG} |"
+            echo "| Navegador | ${SELECTED_BROWSER} |"
             echo "| Logs detallados | ${DETAILED_LOGS} |"
             echo "| Headless | ${HEADLESS_MODE} |"
           } >> "$GITHUB_STEP_SUMMARY"

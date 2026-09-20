@@ -258,6 +258,8 @@ public final class HtmlDashboardGenerator {
                 <head>
                   <meta charset="utf-8">
                   <meta name="viewport" content="width=device-width,initial-scale=1">
+                  <link rel="icon" type="image/png" href="assets/qa_automation_logo.png">
+                  <link rel="shortcut icon" type="image/png" href="assets/qa_automation_logo.png">
                   <title>QA Executive Report · {{REPORT}}</title>
                   <style>
                     :root{--navy:#0b2347;--blue:#155eef;--cyan:#0ea5e9;--purple:#7c3aed;--ink:#172033;--muted:#667085;--line:#dce3ef;--bg:#f5f7fb;--card:#fff;--pass:#12a150;--pass-soft:#eaf8f0;--fail:#d92d3a;--fail-soft:#fff0f1;--shadow:0 14px 40px rgba(15,35,70,.08)}
