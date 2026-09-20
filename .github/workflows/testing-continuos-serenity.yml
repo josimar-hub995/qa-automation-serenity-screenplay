@@ -1,0 +1,411 @@
+name: Quality Engineering Validation
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+    inputs:
+      execution_target:
+        description: Alcance de la validación
+        required: true
+        default: Validación completa
+        type: choice
+        options:
+          - Validación completa
+          - Suite de regresión
+          - Validación de interfaz
+          - Validación de servicios
+          - Flujo principal
+          - TC_WEB_001
+          - TC_WEB_002
+          - TC_WEB_003
+          - TC_WEB_004
+          - TC_WEB_005
+          - TC_API_006
+          - TC_API_007
+          - TC_API_008
+          - TC_API_009
+          - TC_API_010
+          - TC_API_011
+
+      detailed_logs:
+        description: Mostrar logs técnicos detallados
+        required: true
+        default: false
+        type: boolean
+
+      headless_mode:
+        description: Ejecutar navegador en modo headless
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: read
+
+jobs:
+  quality-validation:
+    name: Automated Quality Validation
+    runs-on: ubuntu-latest
+
+    outputs:
+      target: ${{ steps.execution-config.outputs.target }}
+      tag: ${{ steps.execution-config.outputs.tag }}
+      logs: ${{ steps.execution-config.outputs.logs }}
+      headless: ${{ steps.execution-config.outputs.headless }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Configure Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Resolve execution configuration
+        id: execution-config
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            EXECUTION_TARGET="${{ inputs.execution_target }}"
+            DETAILED_LOGS="${{ inputs.detailed_logs }}"
+            HEADLESS_MODE="${{ inputs.headless_mode }}"
+          else
+            EXECUTION_TARGET="Validación completa"
+            DETAILED_LOGS="false"
+            HEADLESS_MODE="true"
+          fi
+
+          case "$EXECUTION_TARGET" in
+            "Validación completa")
+              CUCUMBER_TAGS="@automation"
+              REQUIRES_API="true"
+              ;;
+
+            "Suite de regresión")
+              CUCUMBER_TAGS="@regression"
+              REQUIRES_API="true"
+              ;;
+
+            "Validación de interfaz")
+              CUCUMBER_TAGS="@web"
+              REQUIRES_API="false"
+              ;;
+
+            "Validación de servicios")
+              CUCUMBER_TAGS="@api"
+              REQUIRES_API="true"
+              ;;
+
+            "Flujo principal")
+              CUCUMBER_TAGS="@happyPath"
+              REQUIRES_API="true"
+              ;;
+
+            TC_WEB_*)
+              CUCUMBER_TAGS="@$EXECUTION_TARGET"
+              REQUIRES_API="false"
+              ;;
+
+            TC_API_*)
+              CUCUMBER_TAGS="@$EXECUTION_TARGET"
+              REQUIRES_API="true"
+              ;;
+
+            *)
+              echo "Configuración de ejecución no reconocida."
+              exit 1
+              ;;
+          esac
+
+          echo "CUCUMBER_TAGS=$CUCUMBER_TAGS" >> "$GITHUB_ENV"
+          echo "DETAILED_LOGS=$DETAILED_LOGS" >> "$GITHUB_ENV"
+          echo "HEADLESS_MODE=$HEADLESS_MODE" >> "$GITHUB_ENV"
+          echo "REQUIRES_API=$REQUIRES_API" >> "$GITHUB_ENV"
+
+          echo "target=$EXECUTION_TARGET" >> "$GITHUB_OUTPUT"
+          echo "tag=$CUCUMBER_TAGS" >> "$GITHUB_OUTPUT"
+          echo "logs=$DETAILED_LOGS" >> "$GITHUB_OUTPUT"
+          echo "headless=$HEADLESS_MODE" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "================================================================================================================"
+          echo "                                      CONFIGURACION DE EJECUCION"
+          echo "================================================================================================================"
+          echo " Alcance         : $EXECUTION_TARGET"
+          echo " Tag             : $CUCUMBER_TAGS"
+          echo " Logs detallados : $DETAILED_LOGS"
+          echo " Headless        : $HEADLESS_MODE"
+          echo "================================================================================================================"
+          echo ""
+
+      - name: Validate sensitive configuration
+        if: env.REQUIRES_API == 'true'
+        shell: bash
+        env:
+          REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
+        run: |
+          CONFIG_FILE="src/test/resources/config/qa.properties"
+
+          if [ -z "$REQRES_API_KEY" ]; then
+            echo "El secret REQRES_API_KEY no está configurado."
+            exit 1
+          fi
+
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "No se encontró $CONFIG_FILE"
+            exit 1
+          fi
+
+          if grep -Eq '^[[:space:]]*reqres\.api\.key[[:space:]]*=[[:space:]]*[^[:space:]]+' "$CONFIG_FILE"; then
+            echo "Se detectó una credencial Reqres almacenada en qa.properties."
+            echo "Elimine el valor del repositorio y utilice REQRES_API_KEY."
+            exit 1
+          fi
+
+          echo "Configuración sensible validada correctamente."
+
+      - name: Inject runtime credential
+        if: env.REQUIRES_API == 'true'
+        shell: bash
+        env:
+          REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
+        run: |
+          CONFIG_FILE="src/test/resources/config/qa.properties"
+
+          sed -i '/^[[:space:]]*reqres\.api\.key[[:space:]]*=/d' "$CONFIG_FILE"
+
+          printf '\nreqres.api.key=%s\n' "$REQRES_API_KEY" >> "$CONFIG_FILE"
+
+          echo "Credencial runtime configurada."
+
+      - name: Prepare graphical execution
+        if: env.HEADLESS_MODE == 'false'
+        shell: bash
+        run: |
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+
+      - name: Execute automated validation
+        shell: bash
+        env:
+          REQRES_API_KEY: ${{ secrets.REQRES_API_KEY }}
+        run: |
+          if [ "$HEADLESS_MODE" = "true" ]; then
+            mvn clean verify \
+              -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
+              -Dheadless.mode=true \
+              -Dexecution.logs="${DETAILED_LOGS}"
+          else
+            xvfb-run -a mvn clean verify \
+              -Dcucumber.filter.tags="${CUCUMBER_TAGS}" \
+              -Dheadless.mode=false \
+              -Dexecution.logs="${DETAILED_LOGS}"
+          fi
+
+      - name: Upload execution evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: quality-validation-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            reports/
+            target/site/serenity/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Prepare public report
+        if: always() && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          rm -rf pages-site
+          mkdir -p pages-site
+
+          REPORT_DIR=$(
+            ls -dt reports/REPORT_* 2>/dev/null \
+            | head -n 1 \
+            || true
+          )
+
+          if [ -n "$REPORT_DIR" ] && [ -d "$REPORT_DIR" ]; then
+            echo "Reporte de ejecución localizado."
+            cp -R "$REPORT_DIR"/. pages-site/
+          else
+            echo "No se encontró ningún reporte REPORT_*."
+          fi
+
+          if [ -d "target/site/serenity" ]; then
+            rm -rf pages-site/serenity
+            mkdir -p pages-site/serenity
+            cp -R target/site/serenity/. pages-site/serenity/
+          fi
+
+          touch pages-site/.nojekyll
+
+          if [ -f "pages-site/resumen/dashboard.html" ]; then
+            cat > pages-site/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="es">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <meta http-equiv="refresh" content="0; url=resumen/dashboard.html">
+              <title>Quality Engineering Report</title>
+          </head>
+          <body>
+              <p><a href="resumen/dashboard.html">Abrir reporte de ejecución</a></p>
+          </body>
+          </html>
+          EOF
+
+          elif [ -f "pages-site/serenity/index.html" ]; then
+            cat > pages-site/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="es">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <meta http-equiv="refresh" content="0; url=serenity/index.html">
+              <title>Quality Engineering Report</title>
+          </head>
+          <body>
+              <p><a href="serenity/index.html">Abrir reporte Serenity</a></p>
+          </body>
+          </html>
+          EOF
+
+          else
+            cat > pages-site/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="es">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <title>Quality Engineering Report</title>
+          </head>
+          <body>
+              <h1>Quality Engineering Report</h1>
+              <p>No se encontró un reporte generado para esta ejecución.</p>
+          </body>
+          </html>
+          EOF
+          fi
+
+          echo ""
+          echo "================================================================================================================"
+          echo "                                      REPORTE PREPARADO"
+          echo "================================================================================================================"
+
+          find pages-site \
+            -maxdepth 2 \
+            -type f \
+            | sort
+
+          echo "================================================================================================================"
+
+      - name: Configure GitHub Pages
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: pages-site
+
+  publish-report:
+    name: Publish Quality Report
+    if: always() && github.event_name != 'pull_request'
+
+    needs:
+      - quality-validation
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+      actions: read
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+
+    steps:
+      - name: Publish public report
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Show public report URLs
+        shell: bash
+        env:
+          EXECUTION_TARGET: ${{ needs.quality-validation.outputs.target }}
+          EXECUTION_TAG: ${{ needs.quality-validation.outputs.tag }}
+          DETAILED_LOGS: ${{ needs.quality-validation.outputs.logs }}
+          HEADLESS_MODE: ${{ needs.quality-validation.outputs.headless }}
+        run: |
+          BASE_URL="${{ steps.deployment.outputs.page_url }}"
+
+          echo ""
+          echo "================================================================================================================"
+          echo "                                      QUALITY ENGINEERING REPORT"
+          echo "================================================================================================================"
+          echo ""
+          echo " DASHBOARD GENERAL"
+          echo " ${BASE_URL}"
+          echo ""
+          echo " DASHBOARD DIRECTO"
+          echo " ${BASE_URL}resumen/dashboard.html"
+          echo ""
+          echo " SERENITY BDD"
+          echo " ${BASE_URL}serenity/index.html"
+          echo ""
+          echo " REPOSITORIO"
+          echo " https://github.com/${{ github.repository }}"
+          echo ""
+          echo " EJECUCION"
+          echo " https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo ""
+          echo "================================================================================================================"
+
+          {
+            echo "# Quality Engineering Report"
+            echo ""
+            echo "## Reportes"
+            echo ""
+            echo "| Recurso | Acceso |"
+            echo "|---|---|"
+            echo "| Dashboard | [Abrir Dashboard](${BASE_URL}) |"
+            echo "| Dashboard directo | [Abrir reporte](${BASE_URL}resumen/dashboard.html) |"
+            echo "| Serenity BDD | [Abrir Serenity](${BASE_URL}serenity/index.html) |"
+            echo "| Repositorio | [Abrir repositorio](https://github.com/${{ github.repository }}) |"
+            echo "| Pipeline | [Abrir ejecución](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |"
+            echo ""
+            echo "## Configuración de ejecución"
+            echo ""
+            echo "| Parámetro | Valor |"
+            echo "|---|---|"
+            echo "| Alcance | ${EXECUTION_TARGET} |"
+            echo "| Tag | ${EXECUTION_TAG} |"
+            echo "| Logs detallados | ${DETAILED_LOGS} |"
+            echo "| Headless | ${HEADLESS_MODE} |"
+          } >> "$GITHUB_STEP_SUMMARY"
