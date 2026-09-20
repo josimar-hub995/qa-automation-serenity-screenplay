@@ -205,26 +205,50 @@ public final class ScenarioManager {
 
     public static void finishScenario(String status) {
         ScenarioState state = requireState();
+
+        if ("SKIPPED".equalsIgnoreCase(status)
+                || "ABORTED".equalsIgnoreCase(status)) {
+
+            log("Escenario omitido por configuración de ejecución.");
+            CURRENT.remove();
+            return;
+        }
+
         LocalDateTime endTime = LocalDateTime.now();
         Duration duration = Duration.between(state.startTime, endTime);
-        String normalizedStatus = "PASSED".equalsIgnoreCase(status)
-                && state.steps.stream().noneMatch(step -> "FAILED".equalsIgnoreCase(step.status()))
-                ? "PASSED"
-                : "FAILED";
 
-        if ("FAILED".equals(normalizedStatus) && state.errorMessage.isBlank()) {
+        String normalizedStatus =
+                "PASSED".equalsIgnoreCase(status)
+                        && state.steps.stream()
+                        .noneMatch(step -> "FAILED".equalsIgnoreCase(step.status()))
+                        ? "PASSED"
+                        : "FAILED";
+
+        if ("FAILED".equals(normalizedStatus)
+                && state.errorMessage.isBlank()) {
+
             state.failedStep = "Ejecución del escenario";
-            state.errorMessage = "El escenario finalizó con estado FAILED. Consulte los logs y Serenity para el detalle técnico.";
+            state.errorMessage =
+                    "El escenario finalizó con estado FAILED. Consulte los logs y Serenity para el detalle técnico.";
         }
+
         if ("FAILED".equals(normalizedStatus)
                 && !Files.exists(state.path.resolve("logs/error.log"))) {
-            FileUtility.writeText(state.path.resolve("logs/error.log"),
-                    "Paso o contexto: " + state.failedStep + System.lineSeparator()
-                            + "Error: " + state.errorMessage + System.lineSeparator()
-                            + state.stackTrace);
+
+            FileUtility.writeText(
+                    state.path.resolve("logs/error.log"),
+                    "Paso o contexto: "
+                            + state.failedStep
+                            + System.lineSeparator()
+                            + "Error: "
+                            + state.errorMessage
+                            + System.lineSeparator()
+                            + state.stackTrace
+            );
         }
 
         Map<String, Object> resultJson = new LinkedHashMap<>();
+
         resultJson.put("tap", state.testCaseId);
         resultJson.put("tag", "@" + state.executionTag);
         resultJson.put("scenario", state.scenarioName);
@@ -235,8 +259,16 @@ public final class ScenarioManager {
         resultJson.put("status", normalizedStatus);
         resultJson.put("startTime", DateUtility.display(state.startTime));
         resultJson.put("endTime", DateUtility.display(endTime));
-        resultJson.put("durationSeconds", duration.toMillis() / 1000.0);
-        resultJson.put("browser", state.isApi ? "API REST" : ConfigurationManager.get("browser"));
+        resultJson.put(
+                "durationSeconds",
+                duration.toMillis() / 1000.0
+        );
+        resultJson.put(
+                "browser",
+                state.isApi
+                        ? "API REST"
+                        : ConfigurationManager.get("browser")
+        );
         resultJson.put("environment", ConfigurationManager.environment());
         resultJson.put("evidenceCount", state.screenshots.size());
         resultJson.put("targetUrl", state.targetUrl);
@@ -245,29 +277,44 @@ public final class ScenarioManager {
         resultJson.put("stackTrace", state.stackTrace);
         resultJson.put("steps", stepMaps(state.steps));
         resultJson.put("apiExchange", apiExchange(state));
-        JsonUtility.write(state.path.resolve("result/result.json"), resultJson);
-        log("Fin del escenario. Estado: " + normalizedStatus);
-        ExecutionManager.register(new ScenarioExecutionResult(
-                state.testCaseId,
-                state.executionTag,
-                state.scenarioName,
-                state.expectedResult,
-                state.datasetId,
-                state.workbookName,
-                state.sheetName,
-                normalizedStatus,
-                state.startTime,
-                endTime,
-                duration,
-                state.path,
-                state.isApi ? "API REST" : ConfigurationManager.get("browser"),
-                state.targetUrl,
-                List.copyOf(state.steps),
-                List.copyOf(state.screenshots),
-                state.failedStep,
-                state.errorMessage,
-                state.stackTrace,
-                apiExchange(state)));
+
+        JsonUtility.write(
+                state.path.resolve("result/result.json"),
+                resultJson
+        );
+
+        log(
+                "Fin del escenario. Estado: "
+                        + normalizedStatus
+        );
+
+        ExecutionManager.register(
+                new ScenarioExecutionResult(
+                        state.testCaseId,
+                        state.executionTag,
+                        state.scenarioName,
+                        state.expectedResult,
+                        state.datasetId,
+                        state.workbookName,
+                        state.sheetName,
+                        normalizedStatus,
+                        state.startTime,
+                        endTime,
+                        duration,
+                        state.path,
+                        state.isApi
+                                ? "API REST"
+                                : ConfigurationManager.get("browser"),
+                        state.targetUrl,
+                        List.copyOf(state.steps),
+                        List.copyOf(state.screenshots),
+                        state.failedStep,
+                        state.errorMessage,
+                        state.stackTrace,
+                        apiExchange(state)
+                )
+        );
+
         CURRENT.remove();
     }
 
