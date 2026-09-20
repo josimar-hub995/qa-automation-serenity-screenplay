@@ -24,20 +24,16 @@ public final class ExecutionConsole {
         Path absoluteDashboard =
                 dashboard.toAbsolutePath().normalize();
 
-        Path absoluteSerenityReport =
+        Path absoluteSerenity =
                 serenityReport.toAbsolutePath().normalize();
 
-        Path absoluteArchivedSerenityReport =
+        Path absoluteArchivedSerenity =
                 archivedSerenityReport.toAbsolutePath().normalize();
 
         synchronized (System.out) {
 
             System.out.printf("%n%s%n", LINE);
-
-            printCentered(
-                    "QA AUTOMATION · REPORTE DE EJECUCION"
-            );
-
+            printCentered("QA AUTOMATION · REPORTE DE EJECUCION");
             System.out.println(LINE);
 
             System.out.printf(
@@ -52,69 +48,41 @@ public final class ExecutionConsole {
 
             System.out.println(" DASHBOARD GENERAL");
             System.out.println(" Local:");
-            System.out.println(
-                    absoluteDashboard.toUri()
-            );
+            System.out.println(absoluteDashboard.toUri());
 
-            printJenkinsUrl(
-                    absoluteDashboard
-            );
+            printPipelineLinks();
 
             System.out.println(SEPARATOR);
 
             System.out.println(" REPORTE SERENITY BDD");
             System.out.println(" Local:");
-            System.out.println(
-                    absoluteSerenityReport.toUri()
-            );
+            System.out.println(absoluteSerenity.toUri());
 
             System.out.println(" Archivado:");
-            System.out.println(
-                    absoluteArchivedSerenityReport.toUri()
-            );
+            System.out.println(absoluteArchivedSerenity.toUri());
 
-            printJenkinsUrl(
-                    absoluteArchivedSerenityReport
-            );
+            printPipelineLinks();
 
             if (!failures.isEmpty()) {
 
                 System.out.println(SEPARATOR);
-                System.out.println(
-                        " REPORTES TECNICOS DE ERROR"
-                );
+                System.out.println(" REPORTES TECNICOS DE ERROR");
 
                 for (Path failure : failures) {
 
                     Path absoluteFailure =
-                            failure.toAbsolutePath()
-                                    .normalize();
+                            failure.toAbsolutePath().normalize();
 
                     Path parent =
                             absoluteFailure.getParent();
 
                     String scenarioName =
                             parent == null
-                                    ? absoluteFailure
-                                    .getFileName()
-                                    .toString()
-                                    : parent
-                                    .getFileName()
-                                    .toString();
+                                    ? absoluteFailure.getFileName().toString()
+                                    : parent.getFileName().toString();
 
-                    System.out.println(
-                            " "
-                                    + scenarioName
-                                    + ":"
-                    );
-
-                    System.out.println(
-                            absoluteFailure.toUri()
-                    );
-
-                    printJenkinsUrl(
-                            absoluteFailure
-                    );
+                    System.out.println(" " + scenarioName + ":");
+                    System.out.println(absoluteFailure.toUri());
                 }
             }
 
@@ -122,61 +90,56 @@ public final class ExecutionConsole {
         }
     }
 
-    private static void printJenkinsUrl(
-            Path report) {
+    private static void printPipelineLinks() {
 
-        String buildUrl =
-                System.getenv("BUILD_URL");
+        String githubServer =
+                System.getenv("GITHUB_SERVER_URL");
 
-        if (buildUrl == null
-                || buildUrl.isBlank()) {
+        String githubRepository =
+                System.getenv("GITHUB_REPOSITORY");
+
+        String githubRunId =
+                System.getenv("GITHUB_RUN_ID");
+
+        if (githubServer != null
+                && !githubServer.isBlank()
+                && githubRepository != null
+                && !githubRepository.isBlank()
+                && githubRunId != null
+                && !githubRunId.isBlank()) {
+
+            String runUrl =
+                    githubServer
+                            + "/"
+                            + githubRepository
+                            + "/actions/runs/"
+                            + githubRunId;
+
+            System.out.println(" GitHub Actions:");
+            System.out.println(runUrl);
+
+            System.out.println(" Artifacts:");
+            System.out.println(runUrl + "#artifacts");
 
             return;
         }
 
-        try {
+        String buildUrl =
+                System.getenv("BUILD_URL");
 
-            Path workspace =
-                    Path.of("")
-                            .toAbsolutePath()
-                            .normalize();
-
-            String artifact =
-                    workspace.relativize(
-                                    report
-                                            .toAbsolutePath()
-                                            .normalize()
-                            )
-                            .toString()
-                            .replace('\\', '/')
-                            .replace(" ", "%20");
-
-            String separator =
-                    buildUrl.endsWith("/")
-                            ? ""
-                            : "/";
+        if (buildUrl != null
+                && !buildUrl.isBlank()) {
 
             System.out.println(" Jenkins:");
-
-            System.out.println(
-                    buildUrl
-                            + separator
-                            + "artifact/"
-                            + artifact
-            );
-
-        } catch (IllegalArgumentException ignored) {
+            System.out.println(buildUrl);
         }
     }
 
-    private static void printCentered(
-            String title) {
+    private static void printCentered(String title) {
 
         int padding =
                 Math.max(
-                        (CONSOLE_WIDTH
-                                - title.length())
-                                / 2,
+                        (CONSOLE_WIDTH - title.length()) / 2,
                         0
                 );
 
