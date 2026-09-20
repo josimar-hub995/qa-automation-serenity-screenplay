@@ -1,0 +1,8 @@
+target/
+.idea/
+*.iml
+*.log
+.DS_Store
+
+reports/REPORT_*/
+!reports/README.md

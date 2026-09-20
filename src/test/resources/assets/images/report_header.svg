@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="320" viewBox="0 0 1400 320">
+  <rect width="1400" height="320" fill="#183054"/>
+  <circle cx="1240" cy="70" r="220" fill="#45d483" opacity="0.18"/>
+  <circle cx="1130" cy="300" r="260" fill="#ffffff" opacity="0.06"/>
+  <path d="M105 178l54 54 110-116" fill="none" stroke="#45d483" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="320" y="150" font-family="Arial, sans-serif" font-size="58" font-weight="700" fill="#ffffff">QA Automation Web</text>
+  <text x="320" y="215" font-family="Arial, sans-serif" font-size="30" fill="#dce6f1">Serenity BDD · Screenplay · Cucumber</text>
+</svg>
